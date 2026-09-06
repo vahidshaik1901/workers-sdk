@@ -1295,6 +1295,44 @@ describe("wrangler secret", () => {
 			`);
 		});
 
+		it("should error if the latest version is not deployed", async ({
+			expect,
+		}) => {
+			writeFileSync(
+				"secret.json",
+				JSON.stringify({
+					"secret-name-1": "secret_text",
+				})
+			);
+
+			msw.use(
+				http.patch(
+					`*/accounts/:accountId/workers/scripts/:scriptName/secrets-bulk`,
+					() =>
+						HttpResponse.json(
+							createFetchResult(null, false, [
+								{
+									code: VERSION_NOT_DEPLOYED_ERR_CODE,
+									message: "latest is not deployed",
+								},
+							])
+						),
+					{ once: true }
+				)
+			);
+
+			await expect(async () => {
+				await runWrangler("secret bulk ./secret.json --name script-name");
+			}).rejects.toThrowErrorMatchingInlineSnapshot(`
+				[Error: Secret edit failed. You attempted to modify a secret, but the latest version of your Worker isn't currently deployed.
+				This limitation exists to prevent accidental deployment when using Worker versions and secrets together.
+				To resolve this, you have two options:
+				(1) use the \`wrangler versions secret bulk\` instead, which allows you to update secrets without deploying; or
+				(2) deploy the latest version first, then modify secrets.
+				Alternatively, you can use the Cloudflare dashboard to modify secrets and deploy the version.]
+			`);
+		});
+
 		it("should only send provided secrets via secrets-bulk endpoint", async ({
 			expect,
 		}) => {

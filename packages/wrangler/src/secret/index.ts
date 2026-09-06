@@ -17,6 +17,23 @@ import type { Config } from "@cloudflare/workers-utils";
 
 export const VERSION_NOT_DEPLOYED_ERR_CODE = 10215;
 
+/**
+ * Both `secret put` and `secret bulk` edit the secrets of the deployed Worker, so both
+ * fail the same way when the latest version has not been deployed. The way out is the
+ * matching `wrangler versions secret` command, which edits secrets without deploying.
+ */
+function versionNotDeployedError(command: "put" | "bulk"): UserError {
+	return new UserError(
+		"Secret edit failed. You attempted to modify a secret, but the latest version of your Worker isn't currently deployed.\n" +
+			"This limitation exists to prevent accidental deployment when using Worker versions and secrets together.\n" +
+			"To resolve this, you have two options:\n" +
+			`(1) use the \`wrangler versions secret ${command}\` instead, which allows you to update secrets without deploying; or\n` +
+			"(2) deploy the latest version first, then modify secrets.\n" +
+			"Alternatively, you can use the Cloudflare dashboard to modify secrets and deploy the version.",
+		{ telemetryMessage: `secret ${command} version not deployed` }
+	);
+}
+
 type SecretBindingUpload = {
 	type: "secret_text";
 	name: string;
@@ -155,15 +172,7 @@ export const secretPutCommand = createCommand({
 				});
 			} catch (e) {
 				if (e instanceof APIError && e.code === VERSION_NOT_DEPLOYED_ERR_CODE) {
-					throw new UserError(
-						"Secret edit failed. You attempted to modify a secret, but the latest version of your Worker isn't currently deployed.\n" +
-							"This limitation exists to prevent accidental deployment when using Worker versions and secrets together.\n" +
-							"To resolve this, you have two options:\n" +
-							"(1) use the `wrangler versions secret put` instead, which allows you to update secrets without deploying; or\n" +
-							"(2) deploy the latest version first, then modify secrets.\n" +
-							"Alternatively, you can use the Cloudflare dashboard to modify secrets and deploy the version.",
-						{ telemetryMessage: "secret put version not deployed" }
-					);
+					throw versionNotDeployedError("put");
 				} else {
 					throw e;
 				}
@@ -477,6 +486,9 @@ export const secretBulkCommand = createCommand({
 		} catch (e) {
 			logger.log("");
 			logger.log(`🚨 Secrets failed to upload`);
+			if (e instanceof APIError && e.code === VERSION_NOT_DEPLOYED_ERR_CODE) {
+				throw versionNotDeployedError("bulk");
+			}
 			throw e;
 		}
 
